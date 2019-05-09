@@ -1,43 +1,46 @@
-var Server = require('node_erlastic').server,
-    ReactDOMServer = require("react-dom/server"),
-	Bert = require('node_erlastic/bert'),
-    styleCollector = require("./style-collector"),
-    Domain = require('domain')
+var Server = require('node_erlastic').server;
+var ReactDOMServer = require("react-dom/server");
+var Bert = require('node_erlastic/bert');
+var styleCollector = require("./style-collector");
+var Domain = require('domain');
+
 Bert.all_binaries_as_string = true
 
-function safe_stringify(props){
+function safe_stringify(props) {
   return JSON.stringify(props)
-         .replace(/<\/script/g, '<\\/script')
-         .replace(/<!--/g, '<\\!--')
+    .replace(/<\/script/g, '<\\/script')
+    .replace(/<!--/g, '<\\!--')
 }
 
-function rendering(component,module,submodule,param){
-  var render_params = safe_stringify([module,submodule,component.props,param])
-  var js_render = "(window.reaxt_render.apply(window,"+render_params+"))"
-  try{
+function rendering(component, module, submodule, param) {
+  var render_params = safe_stringify([module, submodule, component.props, param])
+  var js_render = "(window.reaxt_render.apply(window," + render_params + "))"
+  try {
     var html
     var css = styleCollector.collect(function() {
       html = ReactDOMServer.renderToString(component)
     })
-    return Bert.tuple(Bert.atom("ok"),{
+    return Bert.tuple(Bert.atom("ok"), {
       html: html,
       css: css,
       js_render: js_render,
       param: param
     })
-  }catch(error){
+  } catch(error) {
     return Bert.tuple(
-             Bert.atom("error"),
-               Bert.tuple(
-                 Bert.atom("render_error"),
-                 error.toString(),
-                 (error.stack && error.stack || Bert.atom("nil")),
-                 js_render ))
+      Bert.atom("error"),
+      Bert.tuple(
+        Bert.atom("render_error"),
+        error.toString(),
+        (error.stack && error.stack || Bert.atom("nil")),
+        js_render
+      )
+    )
   }
 }
 
-function default_server_render(arg,render){
-  render(React.createElement(this,arg))
+function default_server_render(arg, render) {
+  render(React.createElement(this, arg))
 }
 
 // protocol :
@@ -46,39 +49,39 @@ function default_server_render(arg,render){
 //   then reply {:ok,%{html: ReactRenderingOf(handler,arg),js_render: renderingjs,css: css}}
 // if error reply {:error, {:render_error,error,stack,renderingjs} | {:handler_error,error,stack}}
 var current_ref = 0
-Server(function(term,from,state,done){
-  var module=term[1].toString(), submodule=term[2].toString(), args=term[3], timeout=term[4],
-      handler = require("./../../components/"+module)
+Server(function(term, from, state, done){
+  var module = term[1].toString(), submodule = term[2].toString(), args = term[3], timeout = term[4];
+  var handler = require("./../../components/" + module)
   submodule = (submodule == "nil") ? undefined : submodule
   handler = (!submodule) ? handler : handler[submodule]
   handler.reaxt_server_render = handler.reaxt_server_render || default_server_render
   current_ref++
-  (function(ref){
+  (function(ref) {
     var d = Domain.create()
     var timeout_handler = setTimeout(function(){
-      done("reply",Bert.tuple(Bert.atom("error"),Bert.tuple(Bert.atom("handler_error"),"timeout",Bert.atom("nil"))))
-    },timeout)
-    d.on('error',function(error){
+      done("reply", Bert.tuple(Bert.atom("error"), Bert.tuple(Bert.atom("handler_error"), "timeout", Bert.atom("nil"))))
+    }, timeout)
+    d.on('error', function(error) {
       clearTimeout(timeout_handler)
       if(ref === current_ref)
         done("reply",
-         Bert.tuple(
-           Bert.atom("error"),
-             Bert.tuple(
-               Bert.atom("handler_error"),
-               error.toString(),
-               (error.stack && error.stack || Bert.atom("nil")))))
+          Bert.tuple(
+            Bert.atom("error"),
+            Bert.tuple(
+              Bert.atom("handler_error"),
+              error.toString(),
+              (error.stack && error.stack || Bert.atom("nil")))))
     })
-    d.run(function(){
-      handler.reaxt_server_render(args,function(component,param){
+    d.run(function() {
+      handler.reaxt_server_render(args, function(component, param) {
         clearTimeout(timeout_handler)
         if(ref === current_ref){
-          done("reply",rendering(component,module,submodule,param))
+          done("reply", rendering(component, module, submodule, param))
         }
       })
     })
   })(current_ref)
-},function(init){
+}, function(init){
   global.global_reaxt_config = JSON.parse(init)
   return null
 })
